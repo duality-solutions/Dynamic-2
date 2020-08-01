@@ -127,6 +127,7 @@ DYNAMIC_CORE_H = \
   dht/sessionevents.h \
   dht/settings.h \
   dht/storage.h \
+  dht/torrent.h \
   dht/vgp.h \
   dynode.h \
   dynode-payments.h \
@@ -223,6 +224,7 @@ DYNAMIC_CORE_H = \
   txmempool.h \
   ui_interface.h \
   undo.h \
+  utfcore.h \
   util.h \
   utilmoneystr.h \
   utilstrencodings.h \
@@ -297,6 +299,7 @@ libdynamic_server_a_SOURCES = \
   dht/sessionevents.cpp \
   dht/settings.cpp \
   dht/storage.cpp \
+  dht/torrent.cpp \
   dht/vgp.cpp \
   dynode.cpp \
   dynode-payments.cpp\
