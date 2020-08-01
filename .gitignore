@@ -178,3 +178,6 @@ install_manifest.txt
 # DHT Test binary
 src/dht/test/data_test
 .dht
+
+# Certificate files
+*.pem
