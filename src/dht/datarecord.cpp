@@ -5,39 +5,13 @@
 #include "dht/datarecord.h"
 
 #include "bdap/utils.h"
-#include "bdap/vgp/include/encryption.h" // for VGP E2E encryption
+#include "dht/vgp.h"
 #include "util.h"
 #include "utilstrencodings.h"
 #include "utiltime.h"
 
 #include <string>
 #include <vector>
-
-static bool Encrypt(const std::vector<std::vector<unsigned char>>& vvchPubKeys, const std::vector<unsigned char>& vchValue, std::vector<unsigned char>& vchEncrypted, std::string& strErrorMessage) try
-{
-    if (!EncryptBDAPData(vvchPubKeys, vchValue, vchEncrypted, strErrorMessage))
-        return false;
-
-    return true;
-}
-catch (std::bad_alloc const&)
-{
-    LogPrintf("%s -- catch std::bad_alloc\n", __func__);
-    return false;
-}
-
-static bool Decrypt(const std::vector<unsigned char>& vchPrivSeedBytes, const std::vector<unsigned char>& vchData, std::vector<unsigned char>& vchDecrypted, std::string& strErrorMessage) try
-{
-    if (!DecryptBDAPData(vchPrivSeedBytes, vchData, vchDecrypted, strErrorMessage))
-        return false;
-
-    return true;
-}
-catch (std::bad_alloc const&)
-{
-    LogPrintf("%s -- catch std::bad_alloc\n", __func__);
-    return false;
-}
 
 CDataRecord::CDataRecord(const std::string& opCode, const uint16_t slots, const std::vector<std::vector<unsigned char>>& pubkeys, 
                         const std::vector<unsigned char>& data, const uint16_t version, const uint32_t expire, const DHT::DataFormat format)
@@ -71,9 +45,9 @@ bool CDataRecord::InitPut()
     std::vector<unsigned char> vchRaw;
     if (dataHeader.nVersion == 1)
     {
-        if (!Encrypt(vPubKeys, vchData, vchRaw, strErrorMessage))
+        if (!VgpEncrypt(vPubKeys, vchData, vchRaw, strErrorMessage))
         {
-            LogPrintf("CDataRecord::%s -- Encrypt failed: %s\n", __func__, strErrorMessage);
+            LogPrintf("CDataRecord::%s -- VgpEncrypt failed: %s\n", __func__, strErrorMessage);
             return false;
         }
     }
@@ -189,7 +163,7 @@ bool CDataRecord::InitGet(const std::vector<unsigned char>& privateKey)
         vchData = vchChunks;
     }
     else if (dataHeader.nVersion == 1) {
-        if (!Decrypt(privateKey, vchUnHexValue, vchData, strErrorMessage))
+        if (!VgpDecrypt(privateKey, vchUnHexValue, vchData, strErrorMessage))
             return false;
     }
     else {
