@@ -14,15 +14,16 @@ class CBdapTorrent
 {
 public:
     std::string strErrorMessage;
+    int k;
 
-    CBdapTorrent() {}
+    CBdapTorrent(): strErrorMessage(""), k(0) {}
 
     bool CreateDirectMessage(libtorrent::entry& dm, const std::vector<unsigned char>& vchSharedPubKey, const std::vector<unsigned char>& vchMessage);
     bool NewDirectMessage(const std::vector<unsigned char>& vchFrom, const std::vector<unsigned char>& vchTo, const std::vector<unsigned char>& vchMessage);
-    bool CreateSignedMessage(libtorrent::entry& v, const std::vector<unsigned char>& vchUserFQDN, int k,
-                          const std::string& msg,
-                          const libtorrent::entry* ent, const libtorrent::entry* sig_rtfav,
-                          const std::string& reply_n = "", int reply_k = 0);
-    std::string CreateSignature(const std::string& strMessage, CKeyID& keyID);
-    bool VerifySignature(const std::string& strMessage, const std::string& strUserFQDN, const std::string& strSign, int maxHeight);
+    bool CreateSignedMessage(libtorrent::entry& v, const std::vector<unsigned char>& vchUserFQDN,
+                        const std::vector<unsigned char>& vchPubKey,
+                        const std::string& msg, const libtorrent::entry* ent);
+    bool CheckSignature(const std::vector<unsigned char>& vchPubKey) const;
+    std::string CreateTorrentSignature(const std::string& strMessage, const std::vector<unsigned char>& vchPubKey, const std::vector<unsigned char>& vchPrivKey) const;
+    bool VerifyTorrentSignature(const std::string& strMessage, const std::string& strPubKey, const std::string& strSign) const;
 };

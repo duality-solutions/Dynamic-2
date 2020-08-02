@@ -4,7 +4,10 @@
 
 #include "dht/torrent.h"
 
+#include "bdap/domainentry.h"
+#include "bdap/domainentrydb.h"
 #include "bdap/utils.h"
+#include "dht/ed25519.h"
 #include "dht/vgp.h"
 #include "hash.h"
 #include "key.h"
@@ -15,6 +18,7 @@
 #include "wallet/wallet.h"
 
 #include <libtorrent/bencode.hpp>
+#include <libtorrent/ed25519.hpp>
 #include <libtorrent/entry.hpp>
 
 #include <list>
@@ -39,7 +43,8 @@ bool CBdapTorrent::NewDirectMessage(const std::vector<unsigned char>& vchFrom, c
     // EnsureWalletIsUnlocked();
     std::list<libtorrent::entry *> dmsToSend;
     libtorrent::entry payloadNewFormat;
-    payloadNewFormat["msg"] = stringFromVch(vchMessage);
+    std::string strMsg = stringFromVch(vchMessage);
+    payloadNewFormat["msg"] = strMsg;
     payloadNewFormat["to"]  = stringFromVch(vchTo);
     std::vector<char> payloadbuf;
 
@@ -65,26 +70,49 @@ bool CBdapTorrent::NewDirectMessage(const std::vector<unsigned char>& vchFrom, c
         dmsToSend.push_back(&dmSelf);
         dmsToSend.push_back(&dmRcpt);
     }
-    int k = 0;
+
+    CDomainEntry fromDomainEntry;
+    if (!GetDomainEntry(vchFrom, fromDomainEntry)) {
+        strErrorMessage = strprintf("CBdapTorrent::%s -- %s account not found.", __func__, stringFromVch(vchFrom));
+        return false;
+    }
     for (libtorrent::entry *dm : dmsToSend) {
         libtorrent::entry v;
-        if(!CreateSignedMessage(v, vchFrom, k, "", dm, nullptr, std::string(""), 0)) {
-            strErrorMessage = "CBdapTorrent::NewDirectMessage -- CreateSignedMessage failed." + strErrorMessage;
+        if(!CreateSignedMessage(v, vchFrom, fromDomainEntry.DHTPublicKey, strMsg, dm)) {
+            strErrorMessage = strprintf("CBdapTorrent::%s -- CreateSignedMessage failed. %s", __func__, strErrorMessage);
             return false;
         }
+        std::vector<char> buf;
+        bencode(std::back_inserter(buf), v);
+        /*
+        std::string errmsg;
+        if(!AcceptSignedMessage(buf.data(), buf.size(), strFrom, k, errmsg, NULL)) {
+            strErrorMessage = strprintf("CBdapTorrent::%s -- CreateSignedMessage failed. %s", __func__, errmsg);
+            return false;
+        }
+        torrent_handle h = startTorrentUser(strFrom, true);
+        if(h.is_valid()) {
+            h.add_piece(k++,buf.data(),buf.size());
+        }
+        */
     }
 
     return true;
 }
 
-bool CBdapTorrent::CreateSignedMessage(libtorrent::entry& v, const std::vector<unsigned char>& vchUserFQDN, int k,
-                          const std::string& msg,
-                          const libtorrent::entry* ent, const libtorrent::entry* sig_rtfav,
-                          const std::string& reply_n, int reply_k)
+bool CBdapTorrent::CreateSignedMessage(libtorrent::entry& v, const std::vector<unsigned char>& vchUserFQDN, 
+                        const std::vector<unsigned char>& vchPubKey,
+                        const std::string& msg, const libtorrent::entry* ent)
 {
     std::string username = stringFromVch(vchUserFQDN);
+    CKeyEd25519 privKey;
+    CKeyID pubKeyID = GetIdFromCharVector(vchPubKey);
+    if (!pwalletMain->GetDHTKey(pubKeyID, privKey)) {
+        strErrorMessage = strprintf("CBdapTorrent::%s GetDHTKey falied for account %s", __func__, username);
+        return false;
+    }
 
-    libtorrent::entry& directmessage = v["userpost"];
+    libtorrent::entry& directmessage = v["usermessage"];
 
     directmessage["n"] = username;
     directmessage["k"] = k;
@@ -119,80 +147,33 @@ bool CBdapTorrent::CreateSignedMessage(libtorrent::entry& v, const std::vector<u
 
     directmessage["dm"] = *ent;
 
-    if(reply_n.size()) {
-        libtorrent::entry &reply = directmessage["reply"];
-        reply["n"]=reply_n;
-        reply["k"]=reply_k;
-    }
-    return true;
-    //
-    /*
     std::vector<char> buf;
     bencode(std::back_inserter(buf), directmessage);
-    std::string sig = CreateSignature(std::string(buf.data(),buf.size()), username);
+    std::string sig = CreateTorrentSignature(std::string(buf.data(),buf.size()), privKey.GetPubKeyBytes(), privKey.GetPrivKeyBytes());
     if(sig.size()) {
         v["sig_directmessage"] = sig;
-        return true;
     } else {
         return false;
     }
 
-    
-    // TODO: Add startTorrentUser
-    torrent_handle h = startTorrentUser(strFrom, true);
-    if( h.is_valid() ) {
-        h.add_piece(k++,buf.data(),buf.size());
-    }
-    */
-    
-}
-/*
-std::string CBdapTorrent::CreateSignature(const std::string& strMessage, CKeyID& keyID)
-{
-    if (pwalletMain->IsLocked()) {
-        printf("createSignature: Error please enter the wallet passphrase with walletpassphrase first.\n");
-        return std::string();
-    }
-
-    CKey key;
-    if (!pwalletMain->GetKey(keyID, key)) {
-        printf("createSignature: private key not available for given keyid.\n");
-        return std::string();
-    }
-
-    CHashWriter ss(SER_GETHASH, 0);
-    ss << strMessageMagic;
-    ss << strMessage;
-
-    vector<unsigned char> vchSig;
-    if (!key.SignCompact(ss.GetHash(), vchSig)) {
-        LogPrintf("CBdapTorrent::%s: sign failed.\n", __func__);
-        return std::string();
-    }
-
-    return std::string((const char *)&vchSig[0], vchSig.size());
+    return true;
 }
 
-
-bool CBdapTorrent::VerifySignature(const std::string& strMessage, const std::string& strUserFQDN, const std::string& strSign, int maxHeight)
+std::string CBdapTorrent::CreateTorrentSignature(const std::string& strMessage, const std::vector<unsigned char>& vchPubKey, const std::vector<unsigned char>& vchPrivKey) const
 {
-    CPubKey pubkey;
-    if(!getUserPubKey(strUsername, pubkey, maxHeight) ) {
-      printf("verifySignature: no pubkey for user '%s'\n", strUsername.c_str());
-      return false;
-    }
+    std::vector<unsigned char> vchMsg = vchFromString(strMessage);
+    std::vector<unsigned char> sig(64);
+    libtorrent::ed25519_sign(&sig[0], &vchMsg[0], vchMsg.size(), &vchPubKey[0], &vchPrivKey[0]);
+    return stringFromVch(sig);
+}
 
-    vector<unsigned char> vchSig((const unsigned char*)strSign.data(),
-                                 (const unsigned char*)strSign.data() + strSign.size());
-
-    CHashWriter ss(SER_GETHASH, 0);
-    ss << strMessageMagic;
-    ss << strMessage;
-
-    CPubKey pubkeyRec;
-    if (!pubkeyRec.RecoverCompact(ss.GetHash(), vchSig))
+bool CBdapTorrent::VerifyTorrentSignature(const std::string& strMessage, const std::string& strPubKey, const std::string& strSign) const
+{
+    std::vector<unsigned char> msg = vchFromString(strMessage);
+    std::vector<unsigned char> sig = vchFromString(strSign);
+    std::vector<unsigned char> vchPubKey = vchFromString(strPubKey);
+    if (!libtorrent::ed25519_verify(&sig[0], &msg[0], msg.size(), &vchPubKey[0]))
         return false;
 
-    return (pubkeyRec.GetID() == pubkey.GetID());
+    return true;
 }
-*/
