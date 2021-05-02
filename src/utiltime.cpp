@@ -12,11 +12,14 @@
 #include "utiltime.h"
 
 #include "tinyformat.h"
+#include "util.h"
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread.hpp>
 
 #include <ctime>
+#include <time.h>
+#include <stdlib.h>
 
 static int64_t nMockTime = 0; //! For unit testing
 
@@ -142,7 +145,7 @@ int64_t AddMonthsToCurrentEpoch(const short nMonths)
     short nYear = dt.year() + ((dt.month() + nMonths)/12);
     short nMonth = (dt.month() + nMonths) % 12;
     short nDay = dt.day();
-    //LogPrintf("%s -- nYear %d, nMonth %d, nDay %d\n", __func__, nYear, nMonth, nDay);
+    LogPrintf("%s -- nYear %d, nMonth %d, nDay %d\n", __func__, nYear, nMonth, nDay);
     struct std::tm month_date;
     month_date.tm_hour = 0;   month_date.tm_min = 0; month_date.tm_sec = 0;
     month_date.tm_year = nYear - 1900; month_date.tm_mon = nMonth -1; month_date.tm_mday = nDay;
@@ -154,21 +157,44 @@ int64_t AddMonthsToCurrentEpoch(const short nMonths)
 
 int64_t AddMonthsToBlockTime(const uint32_t& nBlockTime, const short nMonths)
 {
+    LogPrintf("%s -- nBlockTime %d, nMonths %d\n", __func__, nBlockTime, nMonths);
     struct std::tm epoch_date;
     epoch_date.tm_hour = 0;   epoch_date.tm_min = 0; epoch_date.tm_sec = 0;
     epoch_date.tm_year = 70; epoch_date.tm_mon = 0; epoch_date.tm_mday = 1;
-
+    
     boost::gregorian::date dt = boost::posix_time::from_time_t(nBlockTime).date();
     short nYear = dt.year() + ((dt.month() + nMonths)/12);
     short nMonth = (dt.month() + nMonths) % 12;
     short nDay = dt.day();
-    //LogPrintf("%s -- nYear %d, nMonth %d, nDay %d\n", __func__, nYear, nMonth, nDay);
+    LogPrintf("%s -- nYear %d, nMonth %d, nDay %d\n", __func__, nYear, nMonth, nDay);
     struct std::tm month_date;
     month_date.tm_hour = 0;   month_date.tm_min = 0; month_date.tm_sec = 0;
     month_date.tm_year = nYear - 1900; month_date.tm_mon = nMonth -1; month_date.tm_mday = nDay;
-
-    int64_t seconds = (int64_t)std::difftime(std::mktime(&month_date), std::mktime(&epoch_date));
-
+    LogPrintf("%s -- month_date %s\n", __func__, std::put_time(&month_date, "%d-%m-%Y %H-%M-%S"));
+    LogPrintf("%s -- epoch_date %s\n", __func__, std::put_time(&epoch_date, "%d-%m-%Y %H-%M-%S"));
+    time_t mkTimeEnd = std::mktime(&month_date);
+    time_t mkTimeStart = 0;
+    int64_t seconds = 0;
+#if defined(WIN32) || defined(_WIN32)
+    LogPrintf("%s -- WIN32\n", __func__);
+    std::tm timeInfo = {};
+    gmtime_s(&timeInfo, &mkTimeStart);
+    mkTimeStart = std::mktime(&timeInfo);
+#else
+    mkTimeStart = std::mktime(&epoch_date);
+#endif
+    if (mkTimeStart == -1)
+    {
+        LogPrintf("%s -- mkTimeStart negative\n", __func__);
+        mkTimeStart = 0;
+        mkTimeEnd = mkTimeEnd - 3600; // subtract an hour
+    }
+    seconds = (int64_t)std::difftime(mkTimeEnd, mkTimeStart);
+    LogPrintf("%s -- mkTimeStart %d, mkTimeEnd %d\n", __func__, mkTimeStart, mkTimeEnd);
+    //int64_t seconds = (int64_t)std::difftime(mkTimeEnd, mkTimeStart);
+    LogPrintf("%s -- seconds %d\n", __func__, seconds);
+    int64_t result = seconds + SECONDS_PER_DAY;
+    LogPrintf("%s -- result %d\n", __func__, result);
     return seconds + SECONDS_PER_DAY;
 }
 

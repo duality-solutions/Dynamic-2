@@ -655,10 +655,12 @@ bool CX509Certificate::X509RootCASign(const std::vector<unsigned char>& vchIssue
     if ((certificateCA=X509_new()) == NULL)
         return false;
 
+    long nMonthsValid = (long)AddMonthsToBlockTime(0, MonthsValid);
+    LogPrintf("DEBBGUGER %s - nMonthsValid: [%d]\n",__func__, nMonthsValid);
     X509_set_version(certificateCA,2);
     ASN1_INTEGER_set(X509_get_serialNumber(certificateCA), SerialNumber);
     X509_gmtime_adj(X509_get_notBefore(certificateCA),(long)0);
-    X509_gmtime_adj(X509_get_notAfter(certificateCA),(long)AddMonthsToBlockTime(0,MonthsValid));
+    X509_gmtime_adj(X509_get_notAfter(certificateCA), nMonthsValid);
     X509_set_pubkey(certificateCA,issuerprivkeyEd25519);
 
     subjectName=X509_get_subject_name(certificateCA);
